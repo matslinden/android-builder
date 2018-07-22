@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+
+
+export volume_init_done="$ANDROID_SDK_VOLUME"/.volume-init-done
+
+if [ "${1-}" = "--init" ]; then
+
+    if [ -e "$volume_init_done" ]; then
+        echo "Volume init already done, no action!"
+        exit
+    fi
+
+    if [ $(id --user) -ne 0 ]; then
+        echo "Error: Volume init requires container running root user"
+        exit 2
+    fi
+
+    if [ -z "${ANDROID_SDK_VOLUME_OWNERSHIP-}" ]; then
+        echo "Error: Volume init requires docker run has"
+        echo "--env ANDROID_SDK_VOLUME_OWNERSHIP=<uid>:<gid>"
+        echo "to initialize volume files ownership"
+        exit 2
+    fi
+
+    chown --recursive "$ANDROID_SDK_VOLUME_OWNERSHIP" "$ANDROID_SDK_VOLUME"
+
+    # Download the android tools and review and accept licences you want to
+    # use. It is possible to add licenses by run sdkmanager --licenses
+    # separately later.
+
+    gosu "$ANDROID_SDK_VOLUME_OWNERSHIP" bash -c '
+         bundle="$ANDROID_SDK_VOLUME/$ANDROID_ARCHIVE"
+         curl -fsSL "$ANDROID_URL" -o "$bundle"
+         unzip "$bundle" -d "$ANDROID_SDK_ROOT"
+         rm    "$bundle"
+         sdkmanager --licenses
+         touch "$volume_init_done"'
+
+else
+
+    if ! [ -e "$volume_init_done" ]; then
+        echo "Error: Volume init not done, no action!"
+        exit 2
+    fi
+
+    if [ $(id --user) -eq 0 ]; then
+        echo "Error: Container may not run commands as root user"
+        echo "provide docker run flag --user <uid>:<gid>"
+        exit 2
+    fi
+
+    exec "$@"
+fi
